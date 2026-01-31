@@ -11,7 +11,9 @@ local input
 local output
 local verbose
 local function vprint(str, ...)
-    print("[INFO]:", f(str, ...))
+    if verbose then
+        print("[INFO]:", f(str, ...))
+    end
 end
 
 local function checkForMods(fpath, src)
