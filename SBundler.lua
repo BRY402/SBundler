@@ -47,7 +47,7 @@ local loadmod = require
 local function require(modname, args)
     local mod = Module.mods[modname]
     if mod then
-        return mod(modname, unpack(args))
+        return mod(modname, unpack(type(args) == "table" and args or {}))
     end
 
     return loadmod(modname)
