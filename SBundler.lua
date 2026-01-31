@@ -47,7 +47,7 @@ local loadmod = require
 local function require(modname, args)
     local mod = Module.mods[modname]
     if mod then
-        return mod(modname, args)
+        return mod(modname, unpack(args))
     end
 
     return loadmod(modname)
