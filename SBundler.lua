@@ -26,6 +26,7 @@ end
 function SBundler:generate()
     local src = {
         "local Module = {mods = {}, loaded = {}}",
+        "local unpack = unpack or table.unpack",
         [[
 if not table.copy then
     table = setmetatable({
