@@ -1,40 +1,29 @@
-local package = package or {preload = {}, loaded = {}}
 local unpack = unpack or table.unpack
-if not table.copy then
-    table = setmetatable({
-        copy = function(table)
-            local out = {}
-            for k, v in next, table do
-                out[k] = v
-            end
-
-            return out
-        end
-    }, {__index = table})
-end
-
 local _ENV = _ENV or getfenv()
+local require = (function()
+    package = package or {preload = {}}
+    local loaded = {}
+    package.loaded = setmetatable({}, {__index = loaded})
 
-local loadmod = require
-local function require(modname, args)
-    local value = package.loaded[modname]
-    if value then
-        return value
+    return function(modname, args)
+        local res = loaded[modname]
+        if res then
+            return res
+        end
+
+        local mod = package.preload[modname]
+        if mod then
+            local args = type(args) == "table" and args or {args}
+            loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
+        else
+            loaded[modname] = require(modname)
+        end
+
+        return loaded[modname]
     end
+end)()
 
-    local mod = package.preload[modname]
-    if mod then
-        local args = type(args) == "table" and args or {}
-        package.loaded[modname] = mod(modname, unpack(args))
-    else
-        package.loaded[modname] = loadmod(modname)
-    end
-
-    return package.loaded[modname]
-end
-
-package.preload["./options"] = function(...)
-    local _ENV = table.copy(_ENV)
+package.preload["./options"] = function(_ENV, ...)
     local function mod(_ENV, ...)
 -- rewritte the code to be better (some day)
 local options = {}
@@ -79,8 +68,7 @@ return module
 
     return mod(_ENV, ...)
 end
-package.preload["./SBundler"] = function(...)
-    local _ENV = table.copy(_ENV)
+package.preload["./SBundler"] = function(_ENV, ...)
     local function mod(_ENV, ...)
 local f = string.format
 
@@ -105,49 +93,37 @@ end
 
 function SBundler:generate()
     local src = {
-        "local package = package or {preload = {}, loaded = {}}",
         "local unpack = unpack or table.unpack",
-        [[
-if not table.copy then
-    table = setmetatable({
-        copy = function(table)
-            local out = {}
-            for k, v in next, table do
-                out[k] = v
-            end
-
-            return out
-        end
-    }, {__index = table})
-end
-]],
         "local _ENV = _ENV or getfenv()",
         [[
+local require = (function()
+    package = package or {preload = {}}
+    local loaded = {}
+    package.loaded = setmetatable({}, {__index = loaded})
 
-local loadmod = require
-local function require(modname, args)
-    local value = package.loaded[modname]
-    if value then
-        return value
+    return function(modname, args)
+        local res = loaded[modname]
+        if res then
+            return res
+        end
+
+        local mod = package.preload[modname]
+        if mod then
+            local args = type(args) == "table" and args or {args}
+            loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
+        else
+            loaded[modname] = require(modname)
+        end
+
+        return loaded[modname]
     end
-
-    local mod = package.preload[modname]
-    if mod then
-        local args = type(args) == "table" and args or {}
-        package.loaded[modname] = mod(modname, unpack(args))
-    else
-        package.loaded[modname] = loadmod(modname)
-    end
-
-    return package.loaded[modname]
-end
+end)()
 ]],
     }
     
     for modname, modsrc in next, SBundler.modules do
         src[#src + 1] = f([[
-package.preload[%q] = function(...)
-    local _ENV = table.copy(_ENV)
+package.preload[%q] = function(_ENV, ...)
     local function mod(_ENV, ...)
 %s
     end
@@ -218,9 +194,10 @@ local function checkForMods(fpath, src)
     for _, matchstr in ipairs(requireMatches) do
         for _, modname in src:gmatch(matchstr) do
             local modname = unwrapStr(modname)
+            local mpath = fpath..modname
             
             if not SBundler:hasMod(modname) then
-                local modF = io.open(fpath..modname..".lua", "r") or io.open(fpath..modname.."/init.lua", "r")
+                local modF = io.open(mpath..".lua", "r") or io.open(mpath.."/init.lua", "r")
                 
                 if modF then
                     local modsrc = modF:read("*a")
@@ -230,7 +207,7 @@ local function checkForMods(fpath, src)
                     checkForMods(fpath, modsrc)
                     
                 else
-                    print("[WARNING]: failed to read file '"..fpath..modname..".lua'")
+                    print("[WARNING]: failed to find module '"..mpath..".lua' or '"..mpath.."/init.lua'")
                 end
             end
         end

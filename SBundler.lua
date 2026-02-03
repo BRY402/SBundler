@@ -21,49 +21,37 @@ end
 
 function SBundler:generate()
     local src = {
-        "local package = package or {preload = {}, loaded = {}}",
         "local unpack = unpack or table.unpack",
-        [[
-if not table.copy then
-    table = setmetatable({
-        copy = function(table)
-            local out = {}
-            for k, v in next, table do
-                out[k] = v
-            end
-
-            return out
-        end
-    }, {__index = table})
-end
-]],
         "local _ENV = _ENV or getfenv()",
         [[
+local require = (function()
+    package = package or {preload = {}}
+    local loaded = {}
+    package.loaded = setmetatable({}, {__index = loaded})
 
-local loadmod = require
-local function require(modname, args)
-    local value = package.loaded[modname]
-    if value then
-        return value
+    return function(modname, args)
+        local res = loaded[modname]
+        if res then
+            return res
+        end
+
+        local mod = package.preload[modname]
+        if mod then
+            local args = type(args) == "table" and args or {args}
+            loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
+        else
+            loaded[modname] = require(modname)
+        end
+
+        return loaded[modname]
     end
-
-    local mod = package.preload[modname]
-    if mod then
-        local args = type(args) == "table" and args or {}
-        package.loaded[modname] = mod(modname, unpack(args))
-    else
-        package.loaded[modname] = loadmod(modname)
-    end
-
-    return package.loaded[modname]
-end
+end)()
 ]],
     }
     
     for modname, modsrc in next, SBundler.modules do
         src[#src + 1] = f([[
-package.preload[%q] = function(...)
-    local _ENV = table.copy(_ENV)
+package.preload[%q] = function(_ENV, ...)
     local function mod(_ENV, ...)
 %s
     end
