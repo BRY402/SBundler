@@ -22,9 +22,8 @@ end
 function SBundler:generate()
     local src = {
         "local unpack = unpack or table.unpack",
-        "local _ENV = _ENV or getfenv()",
         [[
-local require = (function()
+local require = (function(_ENV)
     package = package or {preload = {}}
     local loaded = {}
     package.loaded = setmetatable({}, {__index = loaded})
@@ -45,7 +44,7 @@ local require = (function()
 
         return loaded[modname]
     end
-end)()
+end)(_ENV or getfenv())
 ]],
     }
     
