@@ -13,7 +13,7 @@ local requireMatches = {
     "require%s*%[(=*)%[(.-)%]%1%]%s*%-*%s*(!?)"
 }
 local function sanitize(target)
-    return string.gsub(target, "([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+    return target:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
 end
 local function unwrapStr(str)
     local start = select(2, str:find("^%[=*%[")) or select(2, str:find("^['\"]"))
