@@ -27,9 +27,13 @@ end
 function SBundler:generate()
     local src = {
         [[
+local coroutine = coroutine
 local package
+local print = print
+
 local require = (function(_ENV)
     local unpack = unpack or table.unpack
+
     package = package or {preload = {}}
     local loaded = {}
     package.loaded = setmetatable({}, {__index = loaded})
@@ -63,8 +67,16 @@ package.preload[%q] = function(_ENV, ...)
     if setfenv then
         setfenv(mod, _ENV)
     end
+        
+    local thread = coroutine.create(mod)
+    local success, result = coroutine.resume(thread, _ENV, ...)
 
-    return mod(_ENV, ...)
+    if not success then
+        print(result)
+        return
+    end
+
+    return result
 end]], modname, modsrc)
     end
     
