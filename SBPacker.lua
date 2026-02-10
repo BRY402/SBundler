@@ -5,38 +5,37 @@ local table_concat = table.concat
 local tostring = tostring
 local type = type
 
-local SBundler = {
+local SBPacker = {
     init = "",
-    modules = {}
+    modules = {},
+    scripts = {}
 }
 
 
-function SBundler:onStart(code)
+function SBPacker:onStart(code)
     if type(code) ~= "string" then
         error("Invalid initialization source, expected string", 2)
     end
     
-    SBundler.init = code
+    SBPacker.init = code
 end
 
 
-function SBundler:clear()
+function SBPacker:clear()
     self.modules = {}
 end
 
-function SBundler:generate()
+function SBPacker:generate()
     local src = {
         [[
 local coroutine = coroutine
-local package
+local sb_package = {preload = {}}
 local print = print
 
 local require = (function(_ENV)
     local unpack = unpack or table.unpack
-
-    package = package or {preload = {}}
     local loaded = {}
-    package.loaded = setmetatable({}, {__index = loaded})
+    sb_package.loaded = setmetatable({}, {__index = loaded})
 
     return function(modname, args)
         local res = loaded[modname]
@@ -44,7 +43,7 @@ local require = (function(_ENV)
             return res
         end
 
-        local mod = package.preload[modname]
+        local mod = sb_package.preload[modname]
         if mod then
             local args = type(args) == "table" and args or {args}
             loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
@@ -58,9 +57,44 @@ end)(_ENV or getfenv())
 ]],
     }
     
-    for modname, modsrc in next, SBundler.modules do
-        src[#src + 1] = f([[
-package.preload[%q] = function(_ENV, ...)
+    for _, modsrc in next, SBPacker.modules do
+        src[#src + 1] = modsrc
+    end
+    for _, scriptsrc in next, SBPacker.scripts do
+        src[#src + 1] = scriptsrc
+    end
+    
+    src[#src + 1] = SBPacker.init
+    
+    return table_concat(src, "\n")
+end
+
+
+function SBPacker:addMod(modname, Source)
+    if type(Source) ~= "string" then
+        error("Invalid module source, expected string", 2)
+    end
+    
+    self.modules[tostring(modname)] = f([[
+sb_package.preload[%q] = function(_ENV, ...)
+    local function mod(_ENV, ...)
+%s
+    end
+    if setfenv then
+        setfenv(mod, _ENV)
+    end
+
+    return mod(_ENV, ...)
+end]], modname, Source)
+end
+
+function SBPacker:addScript(scriptname, Source)
+    if type(Source) ~= "string" then
+        error("Invalid script source, expected string", 2)
+    end
+    
+    self.scripts[tostring(scriptname)] = f([[
+sb_package.preload[%q] = function(_ENV, ...)
     local function mod(_ENV, ...)
 %s
     end
@@ -77,30 +111,20 @@ package.preload[%q] = function(_ENV, ...)
     end
 
     return result
-end]], modname, modsrc)
-    end
-    
-    src[#src + 1] = SBundler.init
-    
-    return table_concat(src, "\n")
+end]], scriptname, Source)
 end
 
-
-function SBundler:addMod(modname, Source)
-    if type(Source) ~= "string" then
-        error("Invalid module source, expected string", 2)
-    end
-    
-    self.modules[tostring(modname)] = Source
-end
-
-function SBundler:removeMod(modname)
+function SBPacker:removeMod(modname)
     self.modules[tostring(modname)] = nil
 end
 
-function SBundler:hasMod(modname)
-    return self.modules[tostring(modname)] ~= nil
+function SBPacker:removeScript(scriptname)
+    self.scripts[tostring(scriptname)] = nil
+end
+
+function SBPacker:hasSourceContainer(name)
+    return self.modules[tostring(name)] ~= nil or self.scripts[tostring(name)] ~= nil
 end
 
 
-return SBundler
+return SBPacker
