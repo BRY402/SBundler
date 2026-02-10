@@ -66,4 +66,4 @@ cd SBPacker;
 lua init.lua -i ../yourInitFile.lua -o ../outputFile.lua
 ``
 
-Alternatively, you can copy the SBPack.lua file into your system and run it in a bash terminal with `lua SBPack.lua -i yourInitFile.lua -o outputFile.lua`
+Alternatively, you can copy the SBPacker.lua file into your system and run it in a bash terminal with `lua SBPacker.lua -i yourInitFile.lua -o outputFile.lua`
