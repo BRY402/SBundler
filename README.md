@@ -32,30 +32,20 @@ and the builder builds it wrong, it's your fault.
 
 * The following is a list of all require modes (must be in a comment in front of the require call, multiple modes can be defined inside the same comment):
 
-```
-! = ignore
+1. ! = ignore
 source containers marked by this will not be included in the final build
-```
 
-```
-@ = script
+2. @ = script
 source containers marked by this will be treated as scripts (default) and will not crash the calling thread on fail (the returned value is still received by the require call)
-```
 
-```
-> $ = module
+3. $ = module
 source containers marked by this will be treated as modules and will crash the calling thread on fail
-```
 
-```
-> ? = optional
+4. ? = optional
 source containers marked by this are optional and will not error when missing
-```
 
-```
-> \* = obligatory(dependency)
+5. \* = obligatory(dependency)
 source containers marked by this are obligatory and will stop the building process if missing
-```
 
 ## Usage
 You can build a Lua pack in a bash terminal using:
