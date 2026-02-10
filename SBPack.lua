@@ -258,6 +258,7 @@ local function vprint(str, ...)
     end
 end
 
+local checkForMods
 local function buildMod(modname, mode, fullpath)
     local modname = unwrapStr(modname)
     local modpath = fullpath..modname
@@ -296,14 +297,16 @@ local function buildMod(modname, mode, fullpath)
     
     vprint("Added module %q", modname)
     modF:close()
+    checkForMods(fullpath, modsrc)
             
     return true
 end
 
-local function checkForMods(fullpath, src)
+function checkForMods(fullpath, src)
     for _, matchstr in ipairs(requireMatches) do
         for _, modname, mode in src:gmatch(matchstr) do
             local success, msg = buildMod(modname, mode, fullpath)
+            
             if not success and msg == 1 then
                 return
             end
