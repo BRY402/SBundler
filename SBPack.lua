@@ -1,4 +1,4 @@
--- @scriptdef: module
+-- @contextdef: module
 local error = error
 local f = string.format
 local next = next
@@ -6,15 +6,40 @@ local table_concat = table.concat
 local tostring = tostring
 local type = type
 
+local containerObj = {
+    sources = {},
+    
+    newSource = function(self, Name, Source)
+        if type(Source) ~= "string" then
+            error("Invalid script source, expected string", 2)
+        end
+        
+        self.sources[tostring(Name)] = f([[
+sb_package.preload[%q] = function(_ENV, ...)
+    %s
+end
+]], tostring(Name), Source)
+    end,
+    
+    removeSource = function(self, Name)
+        self.sources[tostring(Name)] = nil
+    end
+}
+containerObj.__index = containerObj
+
+local function newContainer()
+    local container = setmetatable({}, containerObj)
+    container.sources = {}
+    
+    return container
+end
+
 local SBPack = {
     sources = {
         init = "",
         beforeBuild = ""
     },
-    sourcecontainers = {
-        module = {},
-        script = {}
-    }
+    containers = {}
 }
 
 
@@ -34,18 +59,30 @@ function SBPack:beforeBuild(code)
     SBPack.sources.beforeBuild = code
 end
 
+function SBPack:createContainer(Name)
+    local Name = tostring(Name)
+    local container = self.containers[Name] or newContainer()
+    self.containers[Name] = container
+    
+    return container
+end
+
+function SBPack:deleteContainer(Name)
+    self.containers[tostring(Name)] = nil
+end
+
 
 function SBPack:clear(containerName)
     if not containerName then
-        for i, _ in next, self.sourcecontainers do
-            self.sourcecontainers[i] = {}
+        for i, _ in next, self.containers do
+            self.containers[i] = {}
         end
         
         return
     end
     
-    if self.sourcecontainers[tostring(containerName)] then
-        self.sourcecontainers[tostring(containerName)] = {}
+    if self.containers[tostring(containerName)] then
+        self.containers[tostring(containerName)] = {}
     end
 end
 
@@ -82,8 +119,8 @@ end)(_ENV or getfenv())
         SBPack.sources.beforeBuild
     }
     
-    for _, container in next, SBPack.sourcecontainers do
-        for _, source in next, container do
+    for _, container in next, SBPack.containers do
+        for _, source in next, container.sources do
             src[#src + 1] = source
         end
     end
@@ -93,27 +130,11 @@ end)(_ENV or getfenv())
     return table_concat(src, "\n")
 end
 
-function SBPack:createContainer(Name)
-    local Name = tostring(Name)
-    local container = self.sourcecontainers[Name] or {}
-    self.sourcecontainers[Name] = container
-    
-    return container
-end
-function SBPack:addSourceContainer(Type, Name, Source)
-    if type(Source) ~= "string" then
-        error("Invalid module source, expected string", 2)
-    end
-    
-    self.sourcecontainers[tostring(Type)][tostring(Name)] = f([[
-sb_package.preload[%q] = function(_ENV, ...)
-    %s
-end
-]], tostring(Name), Source)
-end
+local modContainer = SBPack:createContainer("modules")
+local scriptContainer = SBPack:createContainer("scripts")
 
-function SBPack:addMod(modname, Source)
-    SBPack:addSourceContainer("module", modname, f([[
+function SBPack:newMod(modname, Source)
+    modContainer:newSource(modname, f([[
     local function mod(_ENV, ...)
 %s
     end
@@ -121,12 +142,11 @@ function SBPack:addMod(modname, Source)
         setfenv(mod, _ENV)
     end
 
-    return mod(_ENV, ...)
-]], Source))
+    return mod(_ENV, ...)]], Source))
 end
 
-function SBPack:addScript(scriptname, Source)
-    SBPack:addSourceContainer("script", scriptname, f([[
+function SBPack:newScript(scriptname, Source)
+    scriptContainer:newSource(scriptname, f([[
     local function mod(_ENV, ...)
 %s
     end
@@ -142,20 +162,19 @@ function SBPack:addScript(scriptname, Source)
         return
     end
 
-    return result
-]], Source))
+    return result]], Source))
 end
 
 function SBPack:removeMod(modname)
-    self.sourcecontainers.module[tostring(modname)] = nil
+    modContainer:removeSource(modname)
 end
 
 function SBPack:removeScript(scriptname)
-    self.sourcecontainers.script[tostring(scriptname)] = nil
+    scriptContainer:removeSource(scriptname)
 end
 
-function SBPack:hasSourceContainer(name)
-    for _, container in next, self.sourcecontainers do
+function SBPack:hasSource(name)
+    for _, container in next, self.containers do
         if container[tostring(name)] ~= nil then
             return true
         end

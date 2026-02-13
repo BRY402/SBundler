@@ -18,6 +18,7 @@ local commentMatches = {
     "%s*(%-%-)%s*([^\n]+)",
     "%s*%-%-%[(=*)%[(.-)%]%1%]"
 }
+local contextMatch = "@contextdef:%s*([^\n]+)"
 
 local function sanitize(target)
     return target:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
@@ -40,7 +41,7 @@ local function vprint(str, ...)
     end
 end
 
-packer:createContainer("localscript")
+local lsContainer = packer:createContainer("localscript")
 packer:beforeBuild([[
 local NLS = NLS or function()
     print("NLS is not supported in this script builder")
@@ -49,15 +50,15 @@ end
 
 local containerTypes = {
     module = function(modname, source)
-        packer:addMod(modname, source)
+        packer:newMod(modname, source)
     end,
     
     script = function(scriptName, source)
-        packer:addScript(scriptName, source)
+        packer:newScript(scriptName, source)
     end,
     
     localscript = function(name, source)
-        packer:addSourceContainer("localscript", name, f([[
+        lsContainer:newSource(name, f([[
     NLS(%q, [==[%s]==])
 ]], name, source))
     end
@@ -72,7 +73,7 @@ local function buildMod(modname, mode, fullpath)
     local silent = mode == "?"
     local isDependency = mode == "*"
             
-    if packer:hasSourceContainer(modname) or ignore then
+    if packer:hasSource(modname) or ignore then
         return false, 2
     end
     
@@ -99,7 +100,7 @@ local function buildMod(modname, mode, fullpath)
         end
         
         for _, content in modsrc:gmatch(matchstr) do
-            containerType = content:match("@scriptdef:%s*(%w+)")
+            containerType = content:match(contextMatch)
             
             if containerType then
                 break

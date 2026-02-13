@@ -29,186 +29,9 @@ local NLS = NLS or function()
     print("NLS is not supported in this script builder")
 end
 
-sb_package.preload["./SBPack"] = function(_ENV, ...)
-        local function mod(_ENV, ...)
--- @scriptdef: module
-local error = error
-local f = string.format
-local next = next
-local table_concat = table.concat
-local tostring = tostring
-local type = type
-
-local SBPack = {
-    sources = {
-        init = "",
-        beforeBuild = ""
-    },
-    sourcecontainers = {
-        module = {},
-        script = {}
-    }
-}
-
-
-function SBPack:setInit(code)
-    if type(code) ~= "string" then
-        error("Invalid initialization source, expected string", 2)
-    end
-    
-    SBPack.sources.init = code
-end
-
-function SBPack:beforeBuild(code)
-    if type(code) ~= "string" then
-        error("Invalid source for start of build, expected string", 2)
-    end
-    
-    SBPack.sources.beforeBuild = code
-end
-
-
-function SBPack:clear(containerName)
-    if not containerName then
-        for i, _ in next, self.sourcecontainers do
-            self.sourcecontainers[i] = {}
-        end
-        
-        return
-    end
-    
-    if self.sourcecontainers[tostring(containerName)] then
-        self.sourcecontainers[tostring(containerName)] = {}
-    end
-end
-
-function SBPack:generate()
-    local src = {
-        [[
-local coroutine = coroutine
-local sb_package = {preload = {}}
-local print = print
-
-local require = (function(_ENV)
-    local unpack = unpack or table.unpack
-    local loaded = {}
-    sb_package.loaded = setmetatable({}, {__index = loaded})
-
-    return function(modname, args)
-        local res = loaded[modname]
-        if res then
-            return res
-        end
-
-        local mod = sb_package.preload[modname]
-        if mod then
-            local args = type(args) == "table" and args or {args}
-            loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
-        else
-            loaded[modname] = require(modname) --!
-        end
-
-        return loaded[modname]
-    end
-end)(_ENV or getfenv())
-]],
-        SBPack.sources.beforeBuild
-    }
-    
-    for _, container in next, SBPack.sourcecontainers do
-        for _, source in next, container do
-            src[#src + 1] = source
-        end
-    end
-    
-    src[#src + 1] = SBPack.sources.init
-    
-    return table_concat(src, "\n")
-end
-
-function SBPack:createContainer(Name)
-    local Name = tostring(Name)
-    local container = self.sourcecontainers[Name] or {}
-    self.sourcecontainers[Name] = container
-    
-    return container
-end
-function SBPack:addSourceContainer(Type, Name, Source)
-    if type(Source) ~= "string" then
-        error("Invalid module source, expected string", 2)
-    end
-    
-    self.sourcecontainers[tostring(Type)][tostring(Name)] = f([[
-sb_package.preload[%q] = function(_ENV, ...)
-    %s
-end
-]], tostring(Name), Source)
-end
-
-function SBPack:addMod(modname, Source)
-    SBPack:addSourceContainer("module", modname, f([[
-    local function mod(_ENV, ...)
-%s
-    end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-
-    return mod(_ENV, ...)
-]], Source))
-end
-
-function SBPack:addScript(scriptname, Source)
-    SBPack:addSourceContainer("script", scriptname, f([[
-    local function mod(_ENV, ...)
-%s
-    end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-        
-    local thread = coroutine.create(mod)
-    local success, result = coroutine.resume(thread, _ENV, ...)
-
-    if not success then
-        print(result)
-        return
-    end
-
-    return result
-]], Source))
-end
-
-function SBPack:removeMod(modname)
-    self.sourcecontainers.module[tostring(modname)] = nil
-end
-
-function SBPack:removeScript(scriptname)
-    self.sourcecontainers.script[tostring(scriptname)] = nil
-end
-
-function SBPack:hasSourceContainer(name)
-    for _, container in next, self.sourcecontainers do
-        if container[tostring(name)] ~= nil then
-            return true
-        end
-    end
-end
-
-
-return SBPack
-    end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-
-    return mod(_ENV, ...)
-
-end
-
 sb_package.preload["./options"] = function(_ENV, ...)
         local function mod(_ENV, ...)
--- @scriptdef: script
+-- @contextdef: script
 -- rewritte the code to be better (some day)
 local ipairs = ipairs
 local table_remove = table.remove
@@ -263,7 +86,201 @@ return module
     end
 
     return result
+end
 
+sb_package.preload["./SBPack"] = function(_ENV, ...)
+        local function mod(_ENV, ...)
+-- @contextdef: module
+local error = error
+local f = string.format
+local next = next
+local table_concat = table.concat
+local tostring = tostring
+local type = type
+
+local containerObj = {
+    sources = {},
+    
+    newSource = function(self, Name, Source)
+        if type(Source) ~= "string" then
+            error("Invalid script source, expected string", 2)
+        end
+        
+        self.sources[tostring(Name)] = f([[
+sb_package.preload[%q] = function(_ENV, ...)
+    %s
+end
+]], tostring(Name), Source)
+    end,
+    
+    removeSource = function(self, Name)
+        self.sources[tostring(Name)] = nil
+    end
+}
+containerObj.__index = containerObj
+
+local function newContainer()
+    local container = setmetatable({}, containerObj)
+    container.sources = {}
+    
+    return container
+end
+
+local SBPack = {
+    sources = {
+        init = "",
+        beforeBuild = ""
+    },
+    containers = {}
+}
+
+
+function SBPack:setInit(code)
+    if type(code) ~= "string" then
+        error("Invalid initialization source, expected string", 2)
+    end
+    
+    SBPack.sources.init = code
+end
+
+function SBPack:beforeBuild(code)
+    if type(code) ~= "string" then
+        error("Invalid source for start of build, expected string", 2)
+    end
+    
+    SBPack.sources.beforeBuild = code
+end
+
+function SBPack:createContainer(Name)
+    local Name = tostring(Name)
+    local container = self.containers[Name] or newContainer()
+    self.containers[Name] = container
+    
+    return container
+end
+
+function SBPack:deleteContainer(Name)
+    self.containers[tostring(Name)] = nil
+end
+
+
+function SBPack:clear(containerName)
+    if not containerName then
+        for i, _ in next, self.containers do
+            self.containers[i] = {}
+        end
+        
+        return
+    end
+    
+    if self.containers[tostring(containerName)] then
+        self.containers[tostring(containerName)] = {}
+    end
+end
+
+function SBPack:generate()
+    local src = {
+        [[
+local coroutine = coroutine
+local sb_package = {preload = {}}
+local print = print
+
+local require = (function(_ENV)
+    local unpack = unpack or table.unpack
+    local loaded = {}
+    sb_package.loaded = setmetatable({}, {__index = loaded})
+
+    return function(modname, args)
+        local res = loaded[modname]
+        if res then
+            return res
+        end
+
+        local mod = sb_package.preload[modname]
+        if mod then
+            local args = type(args) == "table" and args or {args}
+            loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
+        else
+            loaded[modname] = require(modname) --!
+        end
+
+        return loaded[modname]
+    end
+end)(_ENV or getfenv())
+]],
+        SBPack.sources.beforeBuild
+    }
+    
+    for _, container in next, SBPack.containers do
+        for _, source in next, container.sources do
+            src[#src + 1] = source
+        end
+    end
+    
+    src[#src + 1] = SBPack.sources.init
+    
+    return table_concat(src, "\n")
+end
+
+local modContainer = SBPack:createContainer("modules")
+local scriptContainer = SBPack:createContainer("scripts")
+
+function SBPack:newMod(modname, Source)
+    modContainer:newSource(modname, f([[
+    local function mod(_ENV, ...)
+%s
+    end
+    if setfenv then
+        setfenv(mod, _ENV)
+    end
+
+    return mod(_ENV, ...)]], Source))
+end
+
+function SBPack:newScript(scriptname, Source)
+    scriptContainer:newSource(scriptname, f([[
+    local function mod(_ENV, ...)
+%s
+    end
+    if setfenv then
+        setfenv(mod, _ENV)
+    end
+        
+    local thread = coroutine.create(mod)
+    local success, result = coroutine.resume(thread, _ENV, ...)
+
+    if not success then
+        print(result)
+        return
+    end
+
+    return result]], Source))
+end
+
+function SBPack:removeMod(modname)
+    modContainer:removeSource(modname)
+end
+
+function SBPack:removeScript(scriptname)
+    scriptContainer:removeSource(scriptname)
+end
+
+function SBPack:hasSource(name)
+    for _, container in next, self.containers do
+        if container[tostring(name)] ~= nil then
+            return true
+        end
+    end
+end
+
+
+return SBPack
+    end
+    if setfenv then
+        setfenv(mod, _ENV)
+    end
+
+    return mod(_ENV, ...)
 end
 
 local f = string.format
@@ -286,6 +303,7 @@ local commentMatches = {
     "%s*(%-%-)%s*([^\n]+)",
     "%s*%-%-%[(=*)%[(.-)%]%1%]"
 }
+local contextMatch = "@contextdef:%s*([^\n]+)"
 
 local function sanitize(target)
     return target:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
@@ -308,7 +326,7 @@ local function vprint(str, ...)
     end
 end
 
-packer:createContainer("localscript")
+local lsContainer = packer:createContainer("localscript")
 packer:beforeBuild([[
 local NLS = NLS or function()
     print("NLS is not supported in this script builder")
@@ -317,15 +335,15 @@ end
 
 local containerTypes = {
     module = function(modname, source)
-        packer:addMod(modname, source)
+        packer:newMod(modname, source)
     end,
     
     script = function(scriptName, source)
-        packer:addScript(scriptName, source)
+        packer:newScript(scriptName, source)
     end,
     
     localscript = function(name, source)
-        packer:addSourceContainer("localscript", name, f([[
+        lsContainer:newSource(name, f([[
     NLS(%q, [==[%s]==])
 ]], name, source))
     end
@@ -340,7 +358,7 @@ local function buildMod(modname, mode, fullpath)
     local silent = mode == "?"
     local isDependency = mode == "*"
             
-    if packer:hasSourceContainer(modname) or ignore then
+    if packer:hasSource(modname) or ignore then
         return false, 2
     end
     
@@ -367,7 +385,7 @@ local function buildMod(modname, mode, fullpath)
         end
         
         for _, content in modsrc:gmatch(matchstr) do
-            containerType = content:match("@scriptdef:%s*(%w+)")
+            containerType = content:match(contextMatch)
             
             if containerType then
                 break
