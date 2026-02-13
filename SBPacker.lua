@@ -73,11 +73,8 @@ end
 
 return module
     end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-        
-    local thread = coroutine.create(mod)
+    
+    local thread = coroutine.create(setfenv and setfenv(mod, _ENV) or mod)
     local success, result = coroutine.resume(thread, _ENV, ...)
 
     if not success then
@@ -98,19 +95,23 @@ local table_concat = table.concat
 local tostring = tostring
 local type = type
 
+local function assertString(value, failmsg)
+    if type(value) ~= "string" then
+        error(failmsg, 2)
+    end
+    
+    return value
+end
+
 local containerObj = {
     sources = {},
     
     newSource = function(self, Name, Source)
-        if type(Source) ~= "string" then
-            error("Invalid script source, expected string", 2)
-        end
-        
         self.sources[tostring(Name)] = f([[
 sb_package.preload[%q] = function(_ENV, ...)
     %s
 end
-]], tostring(Name), Source)
+]], tostring(Name), assertString(Source, "Invalid container source, expected string"))
     end,
     
     removeSource = function(self, Name)
@@ -136,19 +137,11 @@ local SBPack = {
 
 
 function SBPack:setInit(code)
-    if type(code) ~= "string" then
-        error("Invalid initialization source, expected string", 2)
-    end
-    
-    SBPack.sources.init = code
+    SBPack.sources.init = assertString(code, "Invalid initialization source, expected string")
 end
 
 function SBPack:beforeBuild(code)
-    if type(code) ~= "string" then
-        error("Invalid source for start of build, expected string", 2)
-    end
-    
-    SBPack.sources.beforeBuild = code
+    SBPack.sources.beforeBuild = assertString(code, "Invalid source for start of build, expected string")
 end
 
 function SBPack:createContainer(Name)
@@ -230,11 +223,7 @@ function SBPack:newMod(modname, Source)
     local function mod(_ENV, ...)
 %s
     end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-
-    return mod(_ENV, ...)]], Source))
+    return (setfenv and setfenv(mod, _ENV) or mod)(_ENV, ...)]], Source))
 end
 
 function SBPack:newScript(scriptname, Source)
@@ -242,11 +231,8 @@ function SBPack:newScript(scriptname, Source)
     local function mod(_ENV, ...)
 %s
     end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-        
-    local thread = coroutine.create(mod)
+    
+    local thread = coroutine.create(setfenv and setfenv(mod, _ENV) or mod)
     local success, result = coroutine.resume(thread, _ENV, ...)
 
     if not success then
@@ -265,9 +251,9 @@ function SBPack:removeScript(scriptname)
     scriptContainer:removeSource(scriptname)
 end
 
-function SBPack:hasSource(name)
+function SBPack:hasSource(Name)
     for _, container in next, self.containers do
-        if container[tostring(name)] ~= nil then
+        if container[tostring(Name)] ~= nil then
             return true
         end
     end
@@ -276,11 +262,7 @@ end
 
 return SBPack
     end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-
-    return mod(_ENV, ...)
+    return (setfenv and setfenv(mod, _ENV) or mod)(_ENV, ...)
 end
 
 local f = string.format
@@ -301,18 +283,16 @@ local requireMatches = {
 }
 local commentMatches = {
     "%s*(%-%-)%s*([^\n]+)",
-    "%s*%-%-%[(=*)%[(.-)%]%1%]"
+    "%s*%-%-%s*%[(=*)%[(.-)%]%1%]"
 }
 local contextMatch = "@contextdef:%s*([^\n]+)"
 
 local function sanitize(target)
     return target:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
 end
+
 local function unwrapStr(str)
-    local start = select(2, str:find("^%[=*%[")) or select(2, str:find("^['\"]"))
-    local end_ = str:find("%]=*%]$") or str:find("['\"]$")
-    
-    return str:sub((start or 0) + 1, (end_ or 0) - 1)
+    return select(2, str:match("([\"'])([^\n]*)%1")) or select(2, str:match("%[(=*)%[(.-)%]%1%]")) or str
 end
 
 local packer = require("./SBPack") -- *
@@ -333,7 +313,7 @@ local NLS = NLS or function()
 end
 ]])
 
-local containerTypes = {
+local containers = {
     module = function(modname, source)
         packer:newMod(modname, source)
     end,
@@ -348,6 +328,18 @@ local containerTypes = {
 ]], name, source))
     end
 }
+
+local function getContext(src)
+    for _, matchstr in ipairs(commentMatches) do
+        for _, content in src:gmatch(matchstr) do
+            local containerType = content:match(contextMatch)
+            
+            if containerType then
+                return containerType
+            end
+        end
+    end
+end
 
 local checkForMods
 local function buildMod(modname, mode, fullpath)
@@ -378,25 +370,11 @@ local function buildMod(modname, mode, fullpath)
         
     local modsrc = modF:read("*a")
     
-    local containerType
-    for _, matchstr in ipairs(commentMatches) do
-        if containerType then
-            break
-        end
-        
-        for _, content in modsrc:gmatch(matchstr) do
-            containerType = content:match(contextMatch)
-            
-            if containerType then
-                break
-            end
-        end
-    end
-    
-    if containerType then
-        containerTypes[containerType](modname, modsrc)
+    local srcContext = getContext(modsrc)
+    if srcContext then
+        containers[srcContext](modname, modsrc)
     else
-        containerTypes.script(modname, modsrc)
+        containers.script(modname, modsrc)
     end
     
     vprint("Added module %q", modname)
@@ -463,6 +441,15 @@ if arg then
     options.long_options.verbose = options.options.v
     
     options.doOptions(arg)
+end
+
+if ... and ... ~= arg[1] then -- required as a module check
+    return {
+        buildMod = buildMod,
+        checkForMods = checkForMods,
+        containers = containers,
+        packer = packer
+    }
 end
 
 if not input and arg then

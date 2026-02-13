@@ -6,19 +6,23 @@ local table_concat = table.concat
 local tostring = tostring
 local type = type
 
+local function assertString(value, failmsg)
+    if type(value) ~= "string" then
+        error(failmsg, 2)
+    end
+    
+    return value
+end
+
 local containerObj = {
     sources = {},
     
     newSource = function(self, Name, Source)
-        if type(Source) ~= "string" then
-            error("Invalid script source, expected string", 2)
-        end
-        
         self.sources[tostring(Name)] = f([[
 sb_package.preload[%q] = function(_ENV, ...)
     %s
 end
-]], tostring(Name), Source)
+]], tostring(Name), assertString(Source, "Invalid container source, expected string"))
     end,
     
     removeSource = function(self, Name)
@@ -44,19 +48,11 @@ local SBPack = {
 
 
 function SBPack:setInit(code)
-    if type(code) ~= "string" then
-        error("Invalid initialization source, expected string", 2)
-    end
-    
-    SBPack.sources.init = code
+    SBPack.sources.init = assertString(code, "Invalid initialization source, expected string")
 end
 
 function SBPack:beforeBuild(code)
-    if type(code) ~= "string" then
-        error("Invalid source for start of build, expected string", 2)
-    end
-    
-    SBPack.sources.beforeBuild = code
+    SBPack.sources.beforeBuild = assertString(code, "Invalid source for start of build, expected string")
 end
 
 function SBPack:createContainer(Name)
@@ -138,11 +134,7 @@ function SBPack:newMod(modname, Source)
     local function mod(_ENV, ...)
 %s
     end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-
-    return mod(_ENV, ...)]], Source))
+    return (setfenv and setfenv(mod, _ENV) or mod)(_ENV, ...)]], Source))
 end
 
 function SBPack:newScript(scriptname, Source)
@@ -150,11 +142,8 @@ function SBPack:newScript(scriptname, Source)
     local function mod(_ENV, ...)
 %s
     end
-    if setfenv then
-        setfenv(mod, _ENV)
-    end
-        
-    local thread = coroutine.create(mod)
+    
+    local thread = coroutine.create(setfenv and setfenv(mod, _ENV) or mod)
     local success, result = coroutine.resume(thread, _ENV, ...)
 
     if not success then
@@ -173,9 +162,9 @@ function SBPack:removeScript(scriptname)
     scriptContainer:removeSource(scriptname)
 end
 
-function SBPack:hasSource(name)
+function SBPack:hasSource(Name)
     for _, container in next, self.containers do
-        if container[tostring(name)] ~= nil then
+        if container[tostring(Name)] ~= nil then
             return true
         end
     end

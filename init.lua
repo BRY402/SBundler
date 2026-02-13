@@ -16,18 +16,16 @@ local requireMatches = {
 }
 local commentMatches = {
     "%s*(%-%-)%s*([^\n]+)",
-    "%s*%-%-%[(=*)%[(.-)%]%1%]"
+    "%s*%-%-%s*%[(=*)%[(.-)%]%1%]"
 }
 local contextMatch = "@contextdef:%s*([^\n]+)"
 
 local function sanitize(target)
     return target:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
 end
+
 local function unwrapStr(str)
-    local start = select(2, str:find("^%[=*%[")) or select(2, str:find("^['\"]"))
-    local end_ = str:find("%]=*%]$") or str:find("['\"]$")
-    
-    return str:sub((start or 0) + 1, (end_ or 0) - 1)
+    return select(2, str:match("([\"'])([^\n]*)%1")) or select(2, str:match("%[(=*)%[(.-)%]%1%]")) or str
 end
 
 local packer = require("./SBPack") -- *
@@ -48,7 +46,7 @@ local NLS = NLS or function()
 end
 ]])
 
-local containerTypes = {
+local containers = {
     module = function(modname, source)
         packer:newMod(modname, source)
     end,
@@ -63,6 +61,18 @@ local containerTypes = {
 ]], name, source))
     end
 }
+
+local function getContext(src)
+    for _, matchstr in ipairs(commentMatches) do
+        for _, content in src:gmatch(matchstr) do
+            local containerType = content:match(contextMatch)
+            
+            if containerType then
+                return containerType
+            end
+        end
+    end
+end
 
 local checkForMods
 local function buildMod(modname, mode, fullpath)
@@ -93,25 +103,11 @@ local function buildMod(modname, mode, fullpath)
         
     local modsrc = modF:read("*a")
     
-    local containerType
-    for _, matchstr in ipairs(commentMatches) do
-        if containerType then
-            break
-        end
-        
-        for _, content in modsrc:gmatch(matchstr) do
-            containerType = content:match(contextMatch)
-            
-            if containerType then
-                break
-            end
-        end
-    end
-    
-    if containerType then
-        containerTypes[containerType](modname, modsrc)
+    local srcContext = getContext(modsrc)
+    if srcContext then
+        containers[srcContext](modname, modsrc)
     else
-        containerTypes.script(modname, modsrc)
+        containers.script(modname, modsrc)
     end
     
     vprint("Added module %q", modname)
@@ -178,6 +174,15 @@ if arg then
     options.long_options.verbose = options.options.v
     
     options.doOptions(arg)
+end
+
+if ... and ... ~= arg[1] then -- required as a module check
+    return {
+        buildMod = buildMod,
+        checkForMods = checkForMods,
+        containers = containers,
+        packer = packer
+    }
 end
 
 if not input and arg then
