@@ -41,7 +41,7 @@ end
 local SBPack = {
     sources = {
         init = "",
-        beforeBuild = ""
+        preBuild = ""
     },
     containers = {}
 }
@@ -51,8 +51,8 @@ function SBPack:setInit(code)
     SBPack.sources.init = assertString(code, "Invalid initialization source, expected string")
 end
 
-function SBPack:beforeBuild(code)
-    SBPack.sources.beforeBuild = assertString(code, "Invalid source for start of build, expected string")
+function SBPack:setPreBuild(code)
+    SBPack.sources.preBuild = assertString(code, "Invalid source for start of build, expected string")
 end
 
 function SBPack:createContainer(Name)
@@ -112,7 +112,7 @@ local require = (function(_ENV)
     end
 end)(_ENV or getfenv())
 ]],
-        SBPack.sources.beforeBuild
+        SBPack.sources.preBuild
     }
     
     for _, container in next, SBPack.containers do
